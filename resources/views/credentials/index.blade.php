@@ -22,12 +22,29 @@
             @endif
         </form>
 
-        <!-- Action Button -->
-        <button @click="openAddModal()" 
-                class="bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white font-bold py-3 px-6 rounded-2xl shadow-md transition-all text-sm flex items-center justify-center gap-2">
-            <i class="fa-solid fa-plus-circle"></i>
-            <span>Tambah Akun Baru</span>
-        </button>
+        <!-- Action Buttons -->
+        <div class="flex flex-wrap items-center gap-3">
+            <!-- Export Backup Button -->
+            <a href="{{ route('credentials.backup.export') }}" 
+               class="px-4 py-3 rounded-2xl bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 hover:border-slate-300 text-xs font-bold transition-all flex items-center gap-2 shadow-sm">
+                <i class="fa-solid fa-download text-blue-500"></i>
+                <span>Ekspor Backup</span>
+            </a>
+
+            <!-- Import Backup Trigger -->
+            <button @click="openImportModal()" 
+                    class="px-4 py-3 rounded-2xl bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 hover:border-slate-300 text-xs font-bold transition-all flex items-center gap-2 shadow-sm">
+                <i class="fa-solid fa-upload text-indigo-500"></i>
+                <span>Impor Backup</span>
+            </button>
+
+            <!-- Add Password Button -->
+            <button @click="openAddModal()" 
+                    class="bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white font-bold py-3 px-6 rounded-2xl shadow-md transition-all text-sm flex items-center justify-center gap-2">
+                <i class="fa-solid fa-plus-circle"></i>
+                <span>Tambah Akun Baru</span>
+            </button>
+        </div>
     </div>
 
     <!-- Credentials Table -->
@@ -363,6 +380,42 @@
         </div>
     </div>
 
+    <!-- IMPORT BACKUP MODAL -->
+    <div x-show="importModalOpen" class="fixed inset-0 z-50 overflow-y-auto flex justify-center items-start p-4 sm:p-10 bg-slate-900/60 backdrop-blur-md" x-cloak>
+        <div class="bg-white border-t-4 border-t-indigo-600 border-x border-b border-slate-100 w-full max-w-md rounded-3xl p-8 relative overflow-hidden shadow-2xl my-auto" @click.away="importModalOpen = false">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
+                <h3 class="font-extrabold text-slate-800 text-lg flex items-center gap-2">
+                    <i class="fa-solid fa-upload text-indigo-500"></i>
+                    <span>Impor Backup Terenkripsi</span>
+                </h3>
+                <button @click="importModalOpen = false" class="text-slate-400 hover:text-slate-600 transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <form action="{{ route('credentials.backup.import') }}" method="POST" enctype="multipart/form-data" class="space-y-6">
+                @csrf
+                <div class="space-y-2">
+                    <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">File Backup (.tulipbackup)</label>
+                    <input type="file" name="backup_file" required accept=".tulipbackup" 
+                           class="w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 border border-slate-200 rounded-xl p-1 bg-slate-50/50 focus:outline-none">
+                </div>
+
+                <div class="flex items-start gap-3 p-4 bg-indigo-50/50 border border-indigo-200/30 rounded-xl">
+                    <i class="fa-solid fa-shield-halved text-indigo-500 text-md mt-0.5"></i>
+                    <div class="text-xs text-slate-600 leading-relaxed">
+                        <strong class="text-indigo-700">Dekripsi Sesi Otomatis:</strong> File backup dienkripsi penuh secara simetris. Pengimporan menggunakan kunci sesi aktif Anda untuk memproses dan menyimpannya kembali.
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" @click="importModalOpen = false" class="border border-slate-200 hover:bg-slate-50 px-5 py-2.5 rounded-xl text-xs font-bold text-slate-500 transition-all">Batal</button>
+                    <button type="submit" class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold px-6 py-2.5 rounded-xl text-xs transition-all shadow-md">Impor Sekarang</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
 </div>
 
 <!-- Alpine JS Controller -->
@@ -372,6 +425,7 @@
             addModalOpen: false,
             editModalOpen: false,
             decryptModalOpen: false,
+            importModalOpen: false,
             
             editData: {
                 id: '',
@@ -407,10 +461,11 @@
                 this.$watch('addModalOpen', value => this.toggleOverlay());
                 this.$watch('editModalOpen', value => this.toggleOverlay());
                 this.$watch('decryptModalOpen', value => this.toggleOverlay());
+                this.$watch('importModalOpen', value => this.toggleOverlay());
             },
 
             toggleOverlay() {
-                const isOpen = this.addModalOpen || this.editModalOpen || this.decryptModalOpen;
+                const isOpen = this.addModalOpen || this.editModalOpen || this.decryptModalOpen || this.importModalOpen;
                 const mainContent = document.getElementById('main-content-area');
                 const mainBody = document.getElementById('main-content-body');
                 if (mainContent) {
@@ -434,6 +489,10 @@
 
             openAddModal() {
                 this.addModalOpen = true;
+            },
+
+            openImportModal() {
+                this.importModalOpen = true;
             },
 
             openEditModal(cred) {
@@ -568,6 +627,15 @@
                 if (type === 'pwd') {
                     this.decryptState.pwdCopied = true;
                     setTimeout(() => this.decryptState.pwdCopied = false, 2000);
+
+                    // Auto clear clipboard after 30 seconds
+                    if (window.clipboardTimeout) {
+                        clearTimeout(window.clipboardTimeout);
+                    }
+                    window.clipboardTimeout = setTimeout(() => {
+                        navigator.clipboard.writeText('');
+                        alert('Clipboard dibersihkan otomatis demi keamanan.');
+                    }, 30000);
                 } else if (type === 'note') {
                     this.decryptState.noteCopied = true;
                     setTimeout(() => this.decryptState.noteCopied = false, 2000);

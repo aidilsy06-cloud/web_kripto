@@ -142,11 +142,33 @@
                     <i class="fa-solid fa-circle-nodes text-lg {{ Request::routeIs('playground') ? 'text-blue-500' : 'text-slate-400 group-hover:text-blue-500' }}"></i>
                     <span class="font-bold">Twofish Visualizer</span>
                 </a>
+
+                <a href="{{ route('reports.index') }}" 
+                   class="flex items-center px-4 py-3 rounded-xl transition-all duration-200 gap-3 group {{ Request::routeIs('reports.*') ? 'bg-gradient-to-r from-blue-500/10 to-indigo-500/5 text-blue-600 border-l-4 border-blue-500 shadow-sm' : 'text-slate-500 hover:bg-white/40 hover:text-slate-800' }}">
+                    <i class="fa-solid fa-triangle-exclamation text-lg {{ Request::routeIs('reports.*') ? 'text-blue-500' : 'text-slate-400 group-hover:text-blue-500' }}"></i>
+                    <span class="font-bold">Lapor Gangguan</span>
+                </a>
+
+                @if(Auth::user() && Auth::user()->role === 'admin')
+                    <div class="px-4 pt-4 pb-2 text-xs font-semibold uppercase tracking-wider text-slate-400 select-none border-t border-white/20">
+                        Admin Panel
+                    </div>
+                    <a href="{{ route('admin.dashboard') }}" 
+                       class="flex items-center px-4 py-3 rounded-xl transition-all duration-200 gap-3 group {{ Request::routeIs('admin.dashboard') ? 'bg-gradient-to-r from-blue-500/10 to-indigo-500/5 text-blue-600 border-l-4 border-blue-500 shadow-sm' : 'text-slate-500 hover:bg-white/40 hover:text-slate-800' }}">
+                        <i class="fa-solid fa-users-gear text-lg {{ Request::routeIs('admin.dashboard') ? 'text-blue-500' : 'text-slate-400 group-hover:text-blue-500' }}"></i>
+                        <span class="font-bold">Admin Dashboard</span>
+                    </a>
+                    <a href="{{ route('admin.reports.index') }}" 
+                       class="flex items-center px-4 py-3 rounded-xl transition-all duration-200 gap-3 group {{ Request::routeIs('admin.reports.*') ? 'bg-gradient-to-r from-blue-500/10 to-indigo-500/5 text-blue-600 border-l-4 border-blue-500 shadow-sm' : 'text-slate-500 hover:bg-white/40 hover:text-slate-800' }}">
+                        <i class="fa-solid fa-inbox text-lg {{ Request::routeIs('admin.reports.*') ? 'text-blue-500' : 'text-slate-400 group-hover:text-blue-500' }}"></i>
+                        <span class="font-bold">Laporan Masuk</span>
+                    </a>
+                @endif
             </nav>
 
             <!-- Bottom Session Info -->
-            <div class="p-4 border-t border-white/30 bg-white/20">
-                <div class="flex items-center justify-between mb-2">
+            <div class="p-4 border-t border-white/30 bg-white/20 space-y-2">
+                <div class="flex items-center justify-between">
                     <span class="text-xs text-slate-500 font-semibold">Sesi Kunci Twofish:</span>
                     @if(session()->has('twofish_key'))
                         <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-300">
@@ -158,7 +180,19 @@
                         </span>
                     @endif
                 </div>
-                <div class="text-[10px] text-slate-400 font-mono break-all line-clamp-1 hover:line-clamp-none transition-all duration-200">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs text-slate-500 font-semibold">Google 2FA:</span>
+                    @if(Auth::user() && Auth::user()->google2fa_enabled)
+                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700 border border-indigo-300">
+                            Aktif
+                        </span>
+                    @else
+                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-300">
+                            Nonaktif
+                        </span>
+                    @endif
+                </div>
+                <div class="text-[10px] text-slate-400 font-mono break-all line-clamp-1 hover:line-clamp-none transition-all duration-200 border-t border-white/10 pt-1.5">
                     Key: {{ session('twofish_key') ? substr(session('twofish_key'), 0, 16) . '...' : 'Locked' }}
                 </div>
             </div>

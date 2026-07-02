@@ -14,9 +14,12 @@ return new class extends Migration
         Schema::create('credentials', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->string('platform_name');
-            $table->string('platform_url')->nullable();
-            $table->string('username');
+            $table->text('platform_name_encrypted');
+            $table->string('platform_name_iv');
+            $table->text('platform_url_encrypted')->nullable();
+            $table->string('platform_url_iv')->nullable();
+            $table->text('username_encrypted');
+            $table->string('username_iv');
             $table->text('password_encrypted');
             $table->string('password_iv');
             $table->text('notes_encrypted')->nullable();

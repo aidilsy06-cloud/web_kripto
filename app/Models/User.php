@@ -23,6 +23,12 @@ class User extends Authenticatable
         'email',
         'password',
         'master_key_salt',
+        'role',
+        'otp_code',
+        'otp_expires_at',
+        'is_verified',
+        'google2fa_secret',
+        'google2fa_enabled',
     ];
 
     /**
@@ -45,6 +51,18 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_verified' => 'boolean',
+            'google2fa_enabled' => 'boolean',
         ];
+    }
+
+    public function credentials()
+    {
+        return $this->hasMany(Credential::class);
+    }
+
+    public function reports()
+    {
+        return $this->hasMany(Report::class);
     }
 }

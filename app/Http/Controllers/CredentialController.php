@@ -24,17 +24,43 @@ class CredentialController extends Controller
     public function index(Request $request)
     {
         $search = $request->input('search');
+        $hexKey = Session::get('twofish_key');
+        if (!$hexKey) {
+            return redirect()->route('unlock')->with('error', 'Sesi enkripsi Twofish Anda kedaluwarsa. Silakan buka vault Anda.');
+        }
+        $key = hex2bin($hexKey);
         
-        $query = Credential::where('user_id', Auth::id());
+        $allCredentials = Credential::where('user_id', Auth::id())->get();
+        $credentials = [];
 
-        if ($search) {
-            $query->where(function($q) use ($search) {
-                $q->where('platform_name', 'like', "%{$search}%")
-                  ->orWhere('username', 'like', "%{$search}%");
-            });
+        foreach ($allCredentials as $cred) {
+            try {
+                // Decrypt metadata in memory
+                $cred->platform_name = $this->twofishService->decrypt($cred->platform_name_encrypted, $key, $cred->platform_name_iv);
+                $cred->username = $this->twofishService->decrypt($cred->username_encrypted, $key, $cred->username_iv);
+                
+                $cred->platform_url = ($cred->platform_url_encrypted && $cred->platform_url_iv)
+                    ? $this->twofishService->decrypt($cred->platform_url_encrypted, $key, $cred->platform_url_iv)
+                    : null;
+
+                // Search filtering in memory (Zero-Knowledge)
+                if ($search) {
+                    $term = strtolower($search);
+                    if (str_contains(strtolower($cred->platform_name), $term) || str_contains(strtolower($cred->username), $term)) {
+                        $credentials[] = $cred;
+                    }
+                } else {
+                    $credentials[] = $cred;
+                }
+            } catch (Exception $e) {
+                // Skip record if decryption fails (safeguard)
+            }
         }
 
-        $credentials = $query->orderBy('platform_name')->get();
+        // Sort credentials by decrypted platform_name
+        usort($credentials, function ($a, $b) {
+            return strcasecmp($a->platform_name ?? '', $b->platform_name ?? '');
+        });
 
         return view('credentials.index', compact('credentials', 'search'));
     }
@@ -58,14 +84,21 @@ class CredentialController extends Controller
         }
 
         $key = hex2bin($hexKey);
-        
-        // Calculate password strength
         $strength = $this->calculatePasswordStrength($request->password);
 
-        // Encrypt the password using Twofish
+        // Encrypt everything with Twofish
+        $platformResult = $this->twofishService->encrypt($request->platform_name, $key);
+        $usernameResult = $this->twofishService->encrypt($request->username, $key);
         $passwordResult = $this->twofishService->encrypt($request->password, $key);
 
-        // Encrypt notes if they exist
+        $platformUrlEncrypted = null;
+        $platformUrlIv = null;
+        if ($request->filled('platform_url')) {
+            $platformUrlResult = $this->twofishService->encrypt($request->platform_url, $key);
+            $platformUrlEncrypted = $platformUrlResult['ciphertext'];
+            $platformUrlIv = $platformUrlResult['iv'];
+        }
+
         $notesEncrypted = null;
         $notesIv = null;
         if ($request->filled('notes')) {
@@ -76,9 +109,12 @@ class CredentialController extends Controller
 
         Credential::create([
             'user_id' => Auth::id(),
-            'platform_name' => $request->platform_name,
-            'platform_url' => $request->platform_url,
-            'username' => $request->username,
+            'platform_name_encrypted' => $platformResult['ciphertext'],
+            'platform_name_iv' => $platformResult['iv'],
+            'platform_url_encrypted' => $platformUrlEncrypted,
+            'platform_url_iv' => $platformUrlIv,
+            'username_encrypted' => $usernameResult['ciphertext'],
+            'username_iv' => $usernameResult['iv'],
             'password_encrypted' => $passwordResult['ciphertext'],
             'password_iv' => $passwordResult['iv'],
             'notes_encrypted' => $notesEncrypted,
@@ -113,13 +149,26 @@ class CredentialController extends Controller
 
         $key = hex2bin($hexKey);
 
+        // Encrypt new metadata
+        $platformResult = $this->twofishService->encrypt($request->platform_name, $key);
+        $usernameResult = $this->twofishService->encrypt($request->username, $key);
+
         $data = [
-            'platform_name' => $request->platform_name,
-            'platform_url' => $request->platform_url,
-            'username' => $request->username,
+            'platform_name_encrypted' => $platformResult['ciphertext'],
+            'platform_name_iv' => $platformResult['iv'],
+            'username_encrypted' => $usernameResult['ciphertext'],
+            'username_iv' => $usernameResult['iv'],
         ];
 
-        // If a new password is provided, encrypt it and update strength
+        if ($request->filled('platform_url')) {
+            $platformUrlResult = $this->twofishService->encrypt($request->platform_url, $key);
+            $data['platform_url_encrypted'] = $platformUrlResult['ciphertext'];
+            $data['platform_url_iv'] = $platformUrlResult['iv'];
+        } else {
+            $data['platform_url_encrypted'] = null;
+            $data['platform_url_iv'] = null;
+        }
+
         if ($request->filled('password')) {
             $passwordResult = $this->twofishService->encrypt($request->password, $key);
             $data['password_encrypted'] = $passwordResult['ciphertext'];
@@ -127,7 +176,6 @@ class CredentialController extends Controller
             $data['strength'] = $this->calculatePasswordStrength($request->password);
         }
 
-        // Encrypt notes if they are updated
         if ($request->has('notes')) {
             if ($request->filled('notes')) {
                 $notesResult = $this->twofishService->encrypt($request->notes, $key);
@@ -167,7 +215,6 @@ class CredentialController extends Controller
             return response()->json(['error' => 'Akses tidak sah.'], 403);
         }
 
-        // Require master password verification
         $request->validate([
             'master_password' => 'required|string',
         ]);
@@ -191,7 +238,7 @@ class CredentialController extends Controller
                 $credential->password_iv
             );
 
-            // Decrypt notes if they exist
+            // Decrypt notes
             $decryptedNotes = null;
             if ($credential->notes_encrypted && $credential->notes_iv) {
                 $decryptedNotes = $this->twofishService->decrypt(
@@ -205,12 +252,156 @@ class CredentialController extends Controller
                 'success' => true,
                 'password' => $decryptedPassword,
                 'notes' => $decryptedNotes,
-                // Add additional performance context for grading
                 'algorithm' => 'Twofish-256 (CBC mode)',
                 'key_source' => 'PBKDF2 SHA-256 Derived'
             ]);
         } catch (Exception $e) {
             return response()->json(['error' => 'Gagal mendekripsi data: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Export credentials backup (encrypted with session Twofish key)
+     */
+    public function exportBackup()
+    {
+        $hexKey = Session::get('twofish_key');
+        if (!$hexKey) {
+            return redirect()->route('credentials.index')->with('error', 'Sesi Twofish kedaluwarsa. Gagal mengekspor backup.');
+        }
+
+        $key = hex2bin($hexKey);
+        $allCredentials = Credential::where('user_id', Auth::id())->get();
+        $plaintextList = [];
+
+        foreach ($allCredentials as $cred) {
+            try {
+                $platform = $this->twofishService->decrypt($cred->platform_name_encrypted, $key, $cred->platform_name_iv);
+                $username = $this->twofishService->decrypt($cred->username_encrypted, $key, $cred->username_iv);
+                $password = $this->twofishService->decrypt($cred->password_encrypted, $key, $cred->password_iv);
+                
+                $url = ($cred->platform_url_encrypted && $cred->platform_url_iv)
+                    ? $this->twofishService->decrypt($cred->platform_url_encrypted, $key, $cred->platform_url_iv)
+                    : null;
+                
+                $notes = ($cred->notes_encrypted && $cred->notes_iv)
+                    ? $this->twofishService->decrypt($cred->notes_encrypted, $key, $cred->notes_iv)
+                    : null;
+
+                $plaintextList[] = [
+                    'platform_name' => $platform,
+                    'platform_url' => $url,
+                    'username' => $username,
+                    'password' => $password,
+                    'notes' => $notes,
+                ];
+            } catch (Exception $e) {
+                // Skip record on decryption error
+            }
+        }
+
+        // Encode payload in JSON
+        $jsonPayload = json_encode([
+            'credentials' => $plaintextList,
+            'exported_at' => now()->toIso8601String(),
+            'owner' => Auth::user()->email
+        ]);
+
+        // Encrypt the JSON payload with Twofish
+        $encryptedResult = $this->twofishService->encrypt($jsonPayload, $key);
+
+        // Build backup file structure
+        $backupContent = json_encode([
+            'app' => 'TulipCrypt',
+            'version' => '1.0',
+            'ciphertext' => $encryptedResult['ciphertext'],
+            'iv' => $encryptedResult['iv']
+        ], JSON_PRETTY_PRINT);
+
+        $filename = 'tulip_backup_' . date('Y_m_d_His') . '.tulipbackup';
+
+        return response($backupContent, 200, [
+            'Content-Type' => 'application/json',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
+    /**
+     * Import credentials from encrypted backup file
+     */
+    public function importBackup(Request $request)
+    {
+        $request->validate([
+            'backup_file' => 'required|file',
+        ]);
+
+        $hexKey = Session::get('twofish_key');
+        if (!$hexKey) {
+            return redirect()->route('credentials.index')->with('error', 'Sesi Twofish kedaluwarsa. Gagal mengimpor backup.');
+        }
+
+        $key = hex2bin($hexKey);
+        $file = $request->file('backup_file');
+        
+        try {
+            $content = json_decode(file_get_contents($file->getRealPath()), true);
+
+            if (!$content || ($content['app'] ?? '') !== 'TulipCrypt') {
+                return back()->with('error', 'Format berkas backup tidak valid! Pastikan menggunakan file berekstensi .tulipbackup yang diunduh dari TulipCrypt.');
+            }
+
+            // Decrypt backup content
+            $decryptedJson = $this->twofishService->decrypt($content['ciphertext'], $key, $content['iv']);
+            $payload = json_decode($decryptedJson, true);
+
+            if (!isset($payload['credentials']) || !is_array($payload['credentials'])) {
+                return back()->with('error', 'Payload data backup rusak atau tidak terbaca.');
+            }
+
+            $count = 0;
+            foreach ($payload['credentials'] as $item) {
+                // Re-encrypt fields for new DB storage
+                $platformResult = $this->twofishService->encrypt($item['platform_name'], $key);
+                $usernameResult = $this->twofishService->encrypt($item['username'], $key);
+                $passwordResult = $this->twofishService->encrypt($item['password'], $key);
+
+                $urlEncrypted = null;
+                $urlIv = null;
+                if (!empty($item['platform_url'])) {
+                    $urlResult = $this->twofishService->encrypt($item['platform_url'], $key);
+                    $urlEncrypted = $urlResult['ciphertext'];
+                    $urlIv = $urlResult['iv'];
+                }
+
+                $notesEncrypted = null;
+                $notesIv = null;
+                if (!empty($item['notes'])) {
+                    $notesResult = $this->twofishService->encrypt($item['notes'], $key);
+                    $notesEncrypted = $notesResult['ciphertext'];
+                    $notesIv = $notesResult['iv'];
+                }
+
+                Credential::create([
+                    'user_id' => Auth::id(),
+                    'platform_name_encrypted' => $platformResult['ciphertext'],
+                    'platform_name_iv' => $platformResult['iv'],
+                    'platform_url_encrypted' => $urlEncrypted,
+                    'platform_url_iv' => $urlIv,
+                    'username_encrypted' => $usernameResult['ciphertext'],
+                    'username_iv' => $usernameResult['iv'],
+                    'password_encrypted' => $passwordResult['ciphertext'],
+                    'password_iv' => $passwordResult['iv'],
+                    'notes_encrypted' => $notesEncrypted,
+                    'notes_iv' => $notesIv,
+                    'strength' => $this->calculatePasswordStrength($item['password']),
+                ]);
+
+                $count++;
+            }
+
+            return redirect()->route('credentials.index')->with('success', "Berhasil mengimpor {$count} kredensial secara aman!");
+        } catch (Exception $e) {
+            return back()->with('error', 'Gagal mendekripsi atau memuat berkas cadangan: Kunci enkripsi berbeda atau berkas rusak.');
         }
     }
 

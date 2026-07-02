@@ -15,11 +15,24 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // Default Admin User
+        User::create([
+            'name' => 'Administrator TulipCrypt',
+            'email' => 'admin@tulip.com',
+            'password' => \Illuminate\Support\Facades\Hash::make('password'),
+            'master_key_salt' => base64_encode(random_bytes(24)),
+            'role' => 'admin',
+            'is_verified' => true,
+        ]);
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+        // Default Regular User
+        User::create([
+            'name' => 'Tulip User',
+            'email' => 'user@tulip.com',
+            'password' => \Illuminate\Support\Facades\Hash::make('password'),
+            'master_key_salt' => base64_encode(random_bytes(24)),
+            'role' => 'user',
+            'is_verified' => true,
         ]);
     }
 }
